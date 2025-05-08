@@ -1,2 +1,21 @@
-[workspace]
-members = ["benser", "wgpu-renderer", "html", "paint"]
+[package]
+name = "wgpu-renderer"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+benser = { path = "../benser" }
+html = { path = "../html" }
+paint = { path = "../paint" }
+env_logger = "0.10.0"
+log = "0.4.18"
+pollster = "0.3.0"
+wgpu = "0.16.1"
+wgpu_text = "0.8.1"
+winit = "0.28.6"
+clap = { version = "4.0.18", features = ["derive"] }
+image = "0.24.4"
+futures-intrusive = "0.5.0"
+bytemuck = { version = "1.13.1", features = ["derive"] }
+lyon = "1.0.1"
