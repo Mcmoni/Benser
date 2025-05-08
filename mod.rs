@@ -1,71 +1,58 @@
-mod state;
+mod dimensions;
+mod edge_sizes;
+mod layout_box;
+mod rect;
 
-use std::sync::Arc;
+pub use dimensions::Dimensions;
+pub use edge_sizes::EdgeSizes;
+pub use layout_box::LayoutBox;
+pub use rect::Rect;
 
-use crate::args::Args;
+use crate::style::StyledNode;
 
-use benser::style::StyledNode;
-use state::State;
-use winit::event::WindowEvent;
-use winit::{
-    event::*,
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
-};
+pub enum BoxType<'a> {
+    BlockNode(&'a StyledNode),
+    InlineNode(&'a StyledNode),
+    AnonymousBlock,
+}
 
-pub async fn run(style_root: Arc<StyledNode>) {
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("benser")
-        .build(&event_loop)
-        .unwrap();
+pub enum Display {
+    Inline,
+    Block,
+    None,
+}
 
-    let mut state = State::new(window, style_root).await;
+/// Transform a style tree into a layout tree.
+pub fn layout_tree<'a>(node: &'a StyledNode, mut containing_block: Dimensions) -> LayoutBox<'a> {
+    // The layout algorithm expects the container height to start at 0.
+    // TODO: Save the initial containing block height, for calculating percent heights.
+    containing_block.content.height = 0.0;
 
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-            state.update();
-            match state.render() {
-                Ok(_) => {}
-                // Reconfigure the surface if lost
-                Err(wgpu::SurfaceError::Lost) => state.resize(state.window_size),
-                // The system is out of memory, we should probably quit
-                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                // All other errors (Outdated, Timeout) should be resolved by the next frame
-                Err(e) => eprintln!("{:?}", e),
-            }
-        }
-        Event::MainEventsCleared => {
-            // RedrawRequested will only trigger once, unless we manually
-            // request it.
-            state.window().request_redraw();
-        }
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == state.window().id() => {
-            if !state.input(event) {
-                match event {
-                    WindowEvent::Resized(physical_size) => {
-                        state.resize(*physical_size);
-                    }
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize(**new_inner_size);
-                    }
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    } => *control_flow = ControlFlow::Exit,
-                    _ => {}
-                }
-            }
-        }
-        _ => {}
+    let mut root_box = build_layout_tree(node);
+    root_box.layout(containing_block);
+    root_box
+}
+
+// Build the tree of LayoutBoxes, but don't perform any layout calculations yet.
+fn build_layout_tree<'a>(style_node: &'a StyledNode) -> LayoutBox<'a> {
+    // Create the root box.
+    let mut root = LayoutBox::new(match style_node.display() {
+        Display::Block => BoxType::BlockNode(style_node),
+        Display::Inline => BoxType::InlineNode(style_node),
+        Display::None => panic!("Root node has display: none."),
     });
+
+    // Create the descendant boxes.
+    for child in &style_node.children {
+        match child.display() {
+            Display::Block => root.children.push(build_layout_tree(child)),
+            Display::Inline => root
+                .get_inline_container()
+                .children
+                .push(build_layout_tree(child)),
+            Display::None => {} // Skip nodes with `display: none;`
+        }
+    }
+
+    root
 }
